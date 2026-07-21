@@ -1407,6 +1407,12 @@ class ThermoDatabase(object):
             logging.debug('ML estimator could not be found.')
             ml_estimator, ml_settings = None, None
 
+        try:
+            external_estimators = get_input('external_estimators')
+        except Exception:
+            logging.debug('external_estimators could not be found.')
+            external_estimators = None
+
         if quantum_mechanics:
             try:
                 original_molecule = species.molecule[0]
@@ -1513,6 +1519,53 @@ class ThermoDatabase(object):
                     thermo0 = self.get_thermo_data_from_ml(species,
                                                            ml_estimator,
                                                            ml_settings)
+
+            if thermo0 is None and external_estimators is not None:
+                properties = ["H298", "S298", "Cpdata"]
+                thermo_data = {}
+                comment = "ML estimation:"
+                for estimator in external_estimators:
+                    if any(prop in estimator.predicted_properties for prop in properties):
+                        preds, reason = estimator.make_estimate(species)
+                        if preds is None:
+                            logging.debug(reason)
+                        else:
+                            for prop, value in preds:
+                                if prop not in thermo_data:
+                                    thermo_data[prop] = value
+                                    comment += f" {prop} estimated by {estimator.name}"
+                                    thermo_data["Tmin"] = min(
+                                        [preds["Tmin"], getattr(thermo_data, "Tmin", np.inf)]
+                                    )
+                                    thermo_data["Tmax"] = min(
+                                        [preds["Tmax"], getattr(thermo_data, "Tmax", -np.inf)]
+                                    )
+                                    if prop == "Cpdata":
+                                        thermo_data["Tdata"] = preds["Tdata"]
+
+                        if all(prop in thermo_data for prop in properties):
+                            break
+                
+                if thermo_data:
+                    if missing_properties := [prop for prop in properties if prop not in thermo_data]:
+                        thermo = self.get_thermo_data_from_groups(species)
+                        for prop in missing_properties:
+                            thermo_data[prop] = getattr(thermo, prop)
+                            comment += f" {prop} estimated by groups"
+
+                    _Cp0 = species.molecule[0].calculate_cp0()
+                    _Cpinf = species.molecule[0].calculate_cpinf()
+                    thermo0 = ThermoData(
+                        Tdata=(thermo_data["Tdata"], 'K'),
+                        Cpdata=(thermo_data["Cpdata"], 'cal/(mol*K)'),
+                        H298=(thermo_data["H298"], 'kcal/mol'),
+                        S298=(thermo_data["S298"], 'cal/(mol*K)'),
+                        Cp0=(_Cp0, 'J/(mol*K)'),
+                        CpInf=(_Cpinf, 'J/(mol*K)'),
+                        Tmin=(thermo_data["Tmin"], 'K'),
+                        Tmax=(thermo_data["Tmax"], 'K'),
+                        comment=comment
+                    )
 
             if thermo0 is None:
                 # And lastly, resort back to group additivity to determine thermo for molecule

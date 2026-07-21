@@ -30,6 +30,7 @@
 import logging
 import os
 from copy import deepcopy
+from typing import Any
 
 import numpy as np
 
@@ -1312,65 +1313,21 @@ def quantum_mechanics(
     )
 
 
-def ml_estimator(thermo=True,
-                 name='main',
-                 minHeavyAtoms=1,
-                 maxHeavyAtoms=None,
-                 minCarbonAtoms=0,
-                 maxCarbonAtoms=None,
-                 minOxygenAtoms=0,
-                 maxOxygenAtoms=None,
-                 minNitrogenAtoms=0,
-                 maxNitrogenAtoms=None,
-                 onlyCyclics=False,
-                 onlyHeterocyclics=False,
-                 minCycleOverlap=0,
-                 H298UncertaintyCutoff=(3.0, 'kcal/mol'),
-                 S298UncertaintyCutoff=(2.0, 'cal/(mol*K)'),
-                 CpUncertaintyCutoff=(2.0, 'cal/(mol*K)')):
-    from rmgpy.ml.estimator import MLEstimator
+def ml_estimator(*args, **kwargs):
+    rmg.ml_estimator = None
+    rmg.ml_settings = {}
+    error_message = """
+    Support for predicting thermochemistry using chemprop has been reimplemented via the
+    `external_estimator` input option.
+    """
+    raise RuntimeError(error_message)
 
-    # Currently only support thermo
-    if thermo:
-        models_path = os.path.join(settings['database.directory'], 'thermo', 'ml', name)
-        if not os.path.exists(models_path):
-            raise InputError('Cannot find ML models folder {}'.format(models_path))
-        hf298_path = os.path.join(models_path, 'hf298')
-        s298_cp_path = os.path.join(models_path, 's298_cp')
-        rmg.ml_estimator = MLEstimator(hf298_path, s298_cp_path)
-
-        uncertainty_cutoffs = dict(
-            H298=Quantity(*H298UncertaintyCutoff),
-            S298=Quantity(*S298UncertaintyCutoff),
-            Cp=Quantity(*CpUncertaintyCutoff)
-        )
-        rmg.ml_settings = dict(
-            min_heavy_atoms=minHeavyAtoms,
-            max_heavy_atoms=maxHeavyAtoms,
-            min_carbon_atoms=minCarbonAtoms,
-            max_carbon_atoms=maxCarbonAtoms,
-            min_oxygen_atoms=minOxygenAtoms,
-            max_oxygen_atoms=maxOxygenAtoms,
-            min_nitrogen_atoms=minNitrogenAtoms,
-            max_nitrogen_atoms=maxNitrogenAtoms,
-            only_cyclics=onlyCyclics,
-            only_heterocyclics=onlyHeterocyclics,
-            min_cycle_overlap=minCycleOverlap,
-            uncertainty_cutoffs=uncertainty_cutoffs,
-        )
-
-    # Shows warning when onlyCyclics is False and onlyHeterocyclics is True
-    if minCycleOverlap > 0 and not onlyCyclics and not onlyHeterocyclics:
-        logging.warning('"onlyCyclics" should be True when "minCycleOverlap" is greater than zero. '
-                        'Machine learning estimator is restricted to only cyclic species thermo with the specified '
-                        'minimum cycle overlap')
-    elif minCycleOverlap > 0 and not onlyCyclics and onlyHeterocyclics:
-        logging.warning('"onlyCyclics" should be True when "onlyHeterocyclics" is True and "minCycleOverlap" is '
-                        'greater than zero. Machine learning estimator is restricted to only heterocyclic species '
-                        'thermo with the specified minimum cycle overlap')
-    elif onlyHeterocyclics and not onlyCyclics:
-        logging.warning('"onlyCyclics" should be True when "onlyHeterocyclics" is True. '
-                        'Machine learning estimator is restricted to only heterocyclic species thermo')
+    
+def external_estimator(path, kwargs: dict[str,  Any] | None = None):
+    from rmg.external.handler import ExternalEstimatorHandler
+    if not getattr(rmg, 'external_estimators', None):
+        rmg.external_estimators = []
+    rmg.external_estimators.append(ExternalEstimatorHandler(path, kwargs))
 
 
 def pressure_dependence(
@@ -1706,6 +1663,7 @@ def read_input_file(path, rmg0):
         'model': model,
         'quantumMechanics': quantum_mechanics,
         'mlEstimator': ml_estimator,
+        'externalEstimator': external_estimator,
         'pressureDependence': pressure_dependence,
         'options': options,
         'generatedSpeciesConstraints': generated_species_constraints,
@@ -2049,6 +2007,8 @@ def get_input(name):
             return rmg.quantum_mechanics
         elif name == 'ml_estimator':
             return rmg.ml_estimator, rmg.ml_settings
+        elif name == 'external_estimators':
+            return rmg.external_estimators
         elif name == 'thermo_central_database':
             return rmg.thermo_central_database
         else:
