@@ -22,6 +22,7 @@ channels:
 dependencies:
 # System-level dependencies - we could install these at the OS level
 # but by installing them in the conda environment we get better control
+  - conda-forge::chemprop
   - conda-forge::cairo
   - conda-forge::cairocffi
   - conda-forge::ffmpeg >= 7
